@@ -2,47 +2,56 @@ package co.edu.icesi;
 
 
 import java.io.*;
+import java.net.ServerSocket;
+
+import javax.crypto.Cipher;
+import javax.crypto.KeyAgreement;
+import javax.crypto.spec.*;
+import java.nio.charset.StandardCharsets;
+import java.security.*;
 import java.net.Socket;
-import java.security.PrivateKey;
-import java.security.PublicKey;
+import java.sql.SQLOutput;
+import java.util.Arrays;
 import java.util.Base64;
+import java.util.Scanner;
 
 public class Client {
-    private Socket clientSocket;
-    private BufferedReader reader;
-    private BufferedWriter writer;
+    private Socket socket;
+    private BufferedReader bufferedReader;
+    private BufferedWriter bufferedWriter;
 
     private PrivateKey privateKey;
     private PublicKey publicKey;
-    private PublicKey receivedPublicKey;
+    private PublicKey  receivedPublicKey;
     private byte[] secretKey;
     private String secretMessage;
-    private Thread listenerThread;
     private DiffieHellman diffieHellman;
-
-    public Client(Socket clientSocket) throws IOException {
-        this.clientSocket = clientSocket;
-        this.reader = new BufferedReader(new InputStreamReader(this.clientSocket.getInputStream()));
-        this.writer = new BufferedWriter(new OutputStreamWriter(this.clientSocket.getOutputStream()));
+    private Thread listenerThread;
+    public Client(Socket socket) throws IOException {
+        this.socket = socket;
+        this.bufferedReader = new BufferedReader(new InputStreamReader(this.socket.getInputStream()));
+        this.bufferedWriter = new BufferedWriter(new OutputStreamWriter(this.socket.getOutputStream()));
         this.diffieHellman = new DiffieHellman();
 
         diffieHellman.generateKeys();
 
-        System.out.println("Connected to server at " + clientSocket.getInetAddress().getHostAddress() + ":" + clientSocket.getLocalPort());
+        System.out.println("Connected to server at " + socket.getInetAddress().getHostAddress() + ":" + socket.getLocalPort());
     }
 
-    public void receiveMessageFromServer(VBox messagesVBox) {
+
+    public void receiveMessageFromServer() {
         System.out.println("Listening for server incoming messages...");
         listenerThread = new Thread(() -> {
-            while (clientSocket.isConnected()) {
+            while (socket.isConnected()) {
                 try {
-                    String messageFromServer = reader.readLine();
-                    if (messageFromServer.contains("SYN/ACK ")) {
+                    String messageFromServer = bufferedReader.readLine();
+
+                    if(messageFromServer.contains("SYN/ACK ")){
                         diffieHellman.receivePublicKeyFrom(messageFromServer.replaceAll("SYN/ACK ", ""));
                         sendMessageToServer("ACK ");
                     } else {
                         String decryptedMessage = diffieHellman.decryptMessage(messageFromServer);
-                        ClientController.addBubble(decryptedMessage, messagesVBox);
+                        ClientController.showMessage(decryptedMessage);
                     }
                 } catch (IOException ioe) {
                     System.out.println("Error receiving message from server.");
@@ -55,33 +64,44 @@ public class Client {
         listenerThread.start();
     }
 
-    public String getPublicKeyBase64() {
+    /**
+     * Returns the Diffie-Hellman public key encoded in Base64 format as a string.
+     *
+     * @return A string representation of the Diffie-Hellman public key encoded in Base64 format.
+     */
+    public String getPublicKey(){
         return Base64.getEncoder().encodeToString(diffieHellman.getPublicKey().getEncoded());
     }
 
+    /**
+     * Sends an encrypted message to the server using a Diffie-Hellman key exchange
+     * algorithm.
+     *
+     * @param messageToSend A string containing the message to be sent to the server.
+     */
     public void sendMessageToServer(String messageToSend) {
         try {
             String encryptedMsg = messageToSend;
-            if (!messageToSend.contains("SYN ") && !messageToSend.contains("ACK ")) {
+            if(!messageToSend.contains("SYN ") & !messageToSend.contains("ACK ")){
                 encryptedMsg = new String(diffieHellman.encryptMessage(messageToSend));
             }
             System.out.println(encryptedMsg);
-            writer.write(encryptedMsg);
-            writer.newLine();
-            writer.flush();
+            bufferedWriter.write(encryptedMsg);
+            bufferedWriter.newLine();
+            bufferedWriter.flush();
         } catch (IOException ioe) {
             System.out.println("Error sending message to the server.");
             ioe.printStackTrace();
-            closeResources();
+            closeEverything(socket, bufferedReader, bufferedWriter);
         }
         System.out.println("Message sent to server");
     }
 
-    public void closeResources() {
+    public void closeEverything (Socket socket, BufferedReader bufferedReader, BufferedWriter bufferedWriter) {
         try {
-            if (reader != null) reader.close();
-            if (writer != null) writer.close();
-            if (clientSocket != null) clientSocket.close();
+            if (bufferedReader != null) bufferedReader.close();
+            if (bufferedWriter != null) bufferedWriter.close();
+            if (socket != null) socket.close();
         } catch (IOException ioe) {
             ioe.printStackTrace();
         }
@@ -91,15 +111,15 @@ public class Client {
         return listenerThread;
     }
 
-    public Socket getClientSocket() {
-        return clientSocket;
+    public Socket getSocket() {
+        return socket;
     }
 
-    public BufferedReader getReader() {
-        return reader;
+    public BufferedReader getBufferedReader() {
+        return bufferedReader;
     }
 
-    public BufferedWriter getWriter() {
-        return writer;
+    public BufferedWriter getBufferedWriter() {
+        return bufferedWriter;
     }
 }

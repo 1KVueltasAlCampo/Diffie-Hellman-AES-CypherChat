@@ -1,6 +1,6 @@
 package co.edu.icesi;
-
-import javax.crypto.*;
+import javax.crypto.Cipher;
+import javax.crypto.KeyAgreement;
 import javax.crypto.spec.*;
 import java.io.IOException;
 import java.security.*;
@@ -8,110 +8,29 @@ import java.security.spec.X509EncodedKeySpec;
 import java.util.Arrays;
 import java.util.Base64;
 
-/**
- * The DiffieHellman class implements the Diffie-Hellman key exchange protocol
- * and provides methods for encrypting and decrypting messages using the shared secret key.
- */
+/** This class is used as a container for all methods related to the solution's Diffie-Hellman implementation.
+ * */
 public class DiffieHellman {
-
-    private static final String ALGORITHM = "AES";
-    private static final String TRANSFORMATION = "AES/CBC/PKCS5Padding";
-    private static final String KEY_AGREEMENT_ALGORITHM = "DH";
-
-    private PublicKey localPublicKey;
     private PrivateKey privateKey;
-    private PublicKey remotePublicKey;
+    private PublicKey  publicKey;
+    private PublicKey  receivedPublicKey;
     private byte[] secretKey;
 
-    /**
-     * Generates a random Initialization Vector (IV) for encryption.
-     *
-     * @return A randomly generated IV.
-     */
-    private byte[] generateIV() {
-        SecureRandom random = new SecureRandom();
-        byte[] iv = new byte[16];
-        random.nextBytes(iv);
-        return iv;
-    }
-
-    /**
-     * Parses a Base64-encoded public key from a string.
-     *
-     * @param publicKey The Base64-encoded public key string.
-     * @return The parsed public key.
-     */
-    private PublicKey parsePublicKey(String publicKey) {
-        try {
-            byte[] publicBytes = Base64.getDecoder().decode(publicKey);
-            X509EncodedKeySpec keySpec = new X509EncodedKeySpec(publicBytes);
-            KeyFactory keyFactory = KeyFactory.getInstance(KEY_AGREEMENT_ALGORITHM);
-            return keyFactory.generatePublic(keySpec);
-        } catch (Exception ex) {
-            // Handle exceptions or log errors if needed.
-            return null;
-        }
-    }
-
-    /**
-     * Generates a pair of public and private keys for the local entity.
-     */
-    public void generateKeys() {
-        try {
-            KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance(KEY_AGREEMENT_ALGORITHM);
-            keyPairGenerator.initialize(1024);
-
-            KeyPair keyPair = keyPairGenerator.generateKeyPair();
-
-            privateKey = keyPair.getPrivate();
-            localPublicKey = keyPair.getPublic();
-        } catch (Exception e) {
-            // Handle exceptions or log errors if needed.
-        }
-    }
-
-    /**
-     * Generates a common secret key based on the local private key and the remote public key.
-     */
-    public void generateCommonSecretKey() {
-        try {
-            KeyAgreement keyAgreement = KeyAgreement.getInstance(KEY_AGREEMENT_ALGORITHM);
-            keyAgreement.init(privateKey);
-            keyAgreement.doPhase(remotePublicKey, true);
-
-            byte[] sharedSecret = keyAgreement.generateSecret();
-
-            secretKey = Arrays.copyOf(sharedSecret, 32);
-
-        } catch (Exception e) {
-            // Handle exceptions or log errors if needed.
-        }
-    }
-
-    /**
-     * Receives the public key from the remote entity and generates the common secret key.
-     *
-     * @param remotePublicKey The Base64-encoded public key received from the remote entity.
-     * @throws IOException If there is an issue parsing the public key.
-     */
-    public void receivePublicKeyFrom(String remotePublicKey) throws IOException {
-        this.remotePublicKey = parsePublicKey(remotePublicKey);
-        generateCommonSecretKey();
-    }
-
-    /**
-     * Encrypts a message using the shared secret key and returns the encrypted data.
-     *
-     * @param message The message to be encrypted.
-     * @return The encrypted message data.
-     */
+    /** Converts a plain text message into an encrypted byte array using the Diffie-Hellman elliptic curve method.
+     * @param message The raw plain text message that's being sent.
+     * @return A byte array containing a leading 16 byte initialization vector and the encrypted message.
+     * */
     public byte[] encryptMessage(String message) {
         try {
-            Cipher cipher = Cipher.getInstance(TRANSFORMATION);
-            cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(secretKey, ALGORITHM));
+            SecretKeySpec keySpec = new SecretKeySpec(secretKey, "AES");
+            Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
 
             byte[] iv = generateIV();
+
+            cipher.init(Cipher.ENCRYPT_MODE, keySpec, new IvParameterSpec(iv));
             byte[] encryptedMessage = cipher.doFinal(message.getBytes());
+
+            System.out.println("Encrypted " + new String (encryptedMessage));
 
             byte[] encryptedData = new byte[iv.length + encryptedMessage.length];
             System.arraycopy(iv, 0, encryptedData, 0, iv.length);
@@ -119,31 +38,105 @@ public class DiffieHellman {
 
             return encryptedData;
         } catch (Exception e) {
-            // Handle exceptions or log errors if needed.
-            return null;
+            e.printStackTrace();
+        }
+        return null;
+    }
+
+    /** This is an auxiliary method that generates an IV from SecureRandom#nextBytes().
+     * @return The initialization vector.
+     * */
+    private byte[] generateIV() {
+        SecureRandom random = new SecureRandom();
+        byte[] iv = new byte[16];
+        random.nextBytes(iv);
+        return iv;
+    }
+
+    /** Method used to initialize the common secret key that will be used during the exchange.
+     * It runs right after the instance receives the remote public key.
+     * */
+    public void generateCommonSecretKey() {
+        try {
+            KeyAgreement keyAgreement = KeyAgreement.getInstance("DH");
+            keyAgreement.init(privateKey);
+            keyAgreement.doPhase(receivedPublicKey, true);
+
+            byte[] sharedSecret = keyAgreement.generateSecret();
+
+            byte[] secretKeyBytes = new byte[32];
+            System.arraycopy(sharedSecret, 0, secretKeyBytes, 0, Math.min(sharedSecret.length, secretKeyBytes.length));
+            secretKey = secretKeyBytes;
+
+
+        } catch (Exception e) {
+            e.printStackTrace();
         }
     }
 
-    /**
-     * Decrypts an encrypted message using the shared secret key.
-     *
-     * @param encryptedMessage The Base64-encoded encrypted message.
-     * @return The decrypted message.
-     */
-    public String decryptMessage(String encryptedMessage) {
+    /** Generates the public and private keys to be used in the exchange by the local instance. */
+    public void generateKeys() {
         try {
-            byte[] messageArray = Base64.getDecoder().decode(encryptedMessage);
-            byte[] iv = Arrays.copyOfRange(messageArray, 0, 16);
-            byte[] encryptedData = Arrays.copyOfRange(messageArray, 16, messageArray.length);
+            KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("DH");
+            keyPairGenerator.initialize(1024);
 
-            SecretKeySpec keySpec = new SecretKeySpec(secretKey, ALGORITHM);
-            Cipher cipher = Cipher.getInstance(TRANSFORMATION);
+            KeyPair keyPair = keyPairGenerator.generateKeyPair();
+
+            privateKey = keyPair.getPrivate();
+            publicKey  = keyPair.getPublic();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    /** @return The public key of the instance as a PublicKey object. */
+    public PublicKey getPublicKey() {
+        return publicKey;
+    }
+
+    /** Takes an encrypted message and decrypts it using the provided common secret and the keys used during the Diffie-Hellman algorithm.
+     * @param message The encrypted data containing the initialization vector and the encrypted message itself.
+     * @return The decrypted message sent from the remote instance. */
+    public String decryptMessage(String message) {
+        try {
+            byte[] messageArray = message.getBytes();
+            byte[] iv = Arrays.copyOfRange(messageArray, 0, 16);
+            byte[] encryptedMessage = Arrays.copyOfRange(messageArray, 16, messageArray.length);
+
+
+            SecretKeySpec keySpec = new SecretKeySpec(secretKey, "AES");
+            Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+
             cipher.init(Cipher.DECRYPT_MODE, keySpec, new IvParameterSpec(iv));
 
-            return new String(cipher.doFinal(encryptedData));
+            return new String(cipher.doFinal(encryptedMessage));
         } catch (Exception e) {
-            // Handle exceptions or log errors if needed.
-            return null;
+            e.printStackTrace();
         }
+        return null;
+    }
+
+    /** Auxiliary method that parses a public key in string form into a PublicKey object.
+     * @param publicKey The string representation of the public key in Base64.
+     * @return A corresponding PublicKey object containing the parse public key. */
+    private PublicKey parsePublicKey(String publicKey){
+        PublicKey pubKey = null;
+        try {
+            byte[] publicBytes = Base64.getDecoder().decode(publicKey);
+            X509EncodedKeySpec keySpec = new X509EncodedKeySpec(publicBytes);
+            KeyFactory keyFactory = KeyFactory.getInstance("DH");
+            pubKey = keyFactory.generatePublic(keySpec);
+        } catch (Exception ex) {
+            ex.printStackTrace();
+        }
+        return pubKey;
+    }
+
+    /** Receives the remote public key and instances it as a PublicKey object within the local instance. It then generates the common secret key to be used.
+     * @param publicKey The string representation of the remote public key sent over by the remote instance during the exchange.
+     * */
+    public void receivePublicKeyFrom(String publicKey) throws IOException {
+        receivedPublicKey = parsePublicKey(publicKey);
+        generateCommonSecretKey();
     }
 }

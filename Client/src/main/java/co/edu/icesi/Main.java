@@ -1,7 +1,29 @@
 package co.edu.icesi;
 
+
+import java.net.URL;
+import java.util.Scanner;
+
 public class Main {
+
+
+
     public static void main(String[] args) {
-        System.out.println("Hello client!");
+        ClientController clientController = new ClientController();
+        clientController.initialize();
+        Scanner scanner = new Scanner(System.in);
+        do{
+            System.out.println("Waiting for input...");
+            String input = scanner.nextLine();
+            if(input.equals("exit")){
+                clientController.closeEverything();
+                System.exit(0);
+            }
+            else{
+                clientController.sendMessage(input);
+            }
+        }
+        while (true);
     }
+
 }
