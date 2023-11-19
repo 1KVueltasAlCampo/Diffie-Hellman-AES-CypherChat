@@ -4,6 +4,7 @@ import javax.crypto.Cipher;
 import javax.crypto.KeyAgreement;
 import javax.crypto.spec.*;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.security.*;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.Arrays;
@@ -18,27 +19,41 @@ public class DiffieHellman {
     private PublicKey  receivedPublicKey;
     private byte[] secretKey;
 
-    /** Converts a plain text message into an encrypted byte array using the Diffie-Hellman elliptic curve method.
-     * @param message The raw plain text message that's being sent.
-     * @return A byte array containing a leading 16 byte initialization vector and the encrypted message.
-     * */
-    public byte[] encryptMessage(String message) {
+    public String encryptMessage(String plainText) {
         try {
+            System.out.println("Yo encripto, uso la secretKey: " + new String(secretKey));
+
+            // Generar un IV (Vector de Inicialización) aleatorio
+            SecureRandom random = new SecureRandom();
+            byte[] iv = new byte[16];
+            random.nextBytes(iv);
+
+            // Aplicar relleno al mensaje original para que su longitud sea múltiplo de 16
+            int blockSize = 16;
+            int padding = blockSize - (plainText.length() % blockSize);
+            StringBuilder paddedText = new StringBuilder(plainText);
+            for (int i = 0; i < padding; i++) {
+                paddedText.append((char) padding);
+            }
+            plainText = paddedText.toString();
+
+            // Crear una instancia de la clave secreta utilizando la clave compartida
             SecretKeySpec keySpec = new SecretKeySpec(secretKey, "AES");
+
+            // Inicializar el cifrado en modo cifrado con la clave y el IV
             Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
-
-            byte[] iv = generateIV();
-
             cipher.init(Cipher.ENCRYPT_MODE, keySpec, new IvParameterSpec(iv));
-            byte[] encryptedMessage = cipher.doFinal(message.getBytes());
 
-            System.out.println("Encrypted " + new String (encryptedMessage));
+            // Cifrar el mensaje
+            byte[] encryptedMessageBytes = cipher.doFinal(plainText.getBytes(StandardCharsets.UTF_8));
 
-            byte[] encryptedData = new byte[iv.length + encryptedMessage.length];
-            System.arraycopy(iv, 0, encryptedData, 0, iv.length);
-            System.arraycopy(encryptedMessage, 0, encryptedData, iv.length, encryptedMessage.length);
+            // Combinar el IV y los datos cifrados
+            byte[] combined = new byte[iv.length + encryptedMessageBytes.length];
+            System.arraycopy(iv, 0, combined, 0, iv.length);
+            System.arraycopy(encryptedMessageBytes, 0, combined, iv.length, encryptedMessageBytes.length);
 
-            return encryptedData;
+            // Codificar a Base64 para obtener una representación de texto del mensaje cifrado
+            return Base64.getEncoder().encodeToString(combined);
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -97,27 +112,34 @@ public class DiffieHellman {
         return publicKey;
     }
 
-    /** Takes an encrypted message and decrypts it using the provided common secret and the keys used during the Diffie-Hellman algorithm.
-     * It also visibly shows the connection is secure by sending an "ACK" message, as a final acknowledgement of the client and the server have received each other's keys.
-     * @param message The encrypted data containing the initialization vector and the encrypted message itself.
-     * @return The decrypted message sent from the remote instance. */
-    public String decryptMessage(String message) {
-        if (message.contains("ACK ")){
-            return message;
+    public String decryptMessage(String encryptedMessage) {
+        if (encryptedMessage.contains("ACK ")){
+            return encryptedMessage;
         }
         try {
-            System.out.println(message);
-            byte[] messageArray = message.getBytes();
-            byte[] iv = Arrays.copyOfRange(messageArray, 0, 16);
-            byte[] encryptedMessage = Arrays.copyOfRange(messageArray, 16, messageArray.length);
+            System.out.println("Yo desencripto, uso la secretKey: " + new String(secretKey));
+            byte[] encryptedData = Base64.getDecoder().decode(encryptedMessage);
 
+            byte[] iv = new byte[16]; // Tamaño del vector de inicialización (IV) utilizado en AES/CBC/PKCS5Padding
 
+            // Extraer el IV del mensaje cifrado
+            System.arraycopy(encryptedData, 0, iv, 0, iv.length);
+
+            // Crear una instancia de la clave secreta utilizando la clave compartida
             SecretKeySpec keySpec = new SecretKeySpec(secretKey, "AES");
-            Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
 
+            // Inicializar el cifrado en modo descifrado con la clave y el IV
+            Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
             cipher.init(Cipher.DECRYPT_MODE, keySpec, new IvParameterSpec(iv));
 
-            return new String(cipher.doFinal(encryptedMessage));
+            // Descifrar el mensaje
+            byte[] decryptedMessageBytes = cipher.doFinal(encryptedData, iv.length, encryptedData.length - iv.length);
+
+            // Quitar el relleno
+            int padding = (int) decryptedMessageBytes[decryptedMessageBytes.length - 1];
+            String decryptedMessage = new String(Arrays.copyOfRange(decryptedMessageBytes, 0, decryptedMessageBytes.length - padding), StandardCharsets.UTF_8);
+
+            return decryptedMessage;
         } catch (Exception e) {
             e.printStackTrace();
         }
