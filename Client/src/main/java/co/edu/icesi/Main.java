@@ -13,7 +13,6 @@ public class Main {
         clientController.initialize();
         Scanner scanner = new Scanner(System.in);
         do{
-            System.out.println("Waiting for input...");
             String input = scanner.nextLine();
             if(input.equals("exit")){
                 clientController.closeEverything();
